@@ -82,7 +82,6 @@ class FeedFragment : Fragment() {
 
         return binding.root
     }
-
     private fun refreshPosts() {
         viewModel.loadPosts()
         viewModel.data.observe(viewLifecycleOwner) { state ->
