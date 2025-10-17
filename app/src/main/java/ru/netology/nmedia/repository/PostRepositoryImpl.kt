@@ -5,6 +5,7 @@ import com.google.gson.reflect.TypeToken
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import ru.netology.nmedia.dto.Post
 import java.util.concurrent.TimeUnit
@@ -36,7 +37,31 @@ class PostRepositoryImpl: PostRepository {
     }
 
     override fun likeById(id: Long) {
-        // TODO: do this in homework
+        val request: Request = Request.Builder()
+            .post(RequestBody.create(null, ""))
+            .url("${BASE_URL}/api/posts/$id/likes")
+            .build()
+
+        client.newCall(request)
+            .execute()
+            .use { response ->
+                val bodyString = response.body?.string() ?: throw RuntimeException("Response body is null")
+                gson.fromJson(bodyString, Post::class.java)
+            }
+    }
+
+    override fun dislikeById(id: Long) {
+        val request: Request = Request.Builder()
+            .delete()
+            .url("${BASE_URL}/api/posts/$id/likes")
+            .build()
+
+        client.newCall(request)
+            .execute()
+            .use { response ->
+                val bodyString = response.body?.string() ?: throw RuntimeException("Response body is null")
+                gson.fromJson(bodyString, Post::class.java)
+            }
     }
 
     override fun save(post: Post) {
@@ -59,5 +84,18 @@ class PostRepositoryImpl: PostRepository {
         client.newCall(request)
             .execute()
             .close()
+    }
+
+    override fun toggleLikeById(id: Long, addLike: Boolean): Post {
+        val method = if (addLike) "POST" else "DELETE"
+        val requestBuilder = Request.Builder().method(method, RequestBody.create(null, ""))
+        val request = requestBuilder.url("${BASE_URL}/api/posts/$id/likes").build()
+
+        return client.newCall(request)
+            .execute()
+            .use { response ->
+                val bodyString = response.body?.string() ?: throw RuntimeException("Response body is null")
+                gson.fromJson(bodyString, Post::class.java)
+            }
     }
 }

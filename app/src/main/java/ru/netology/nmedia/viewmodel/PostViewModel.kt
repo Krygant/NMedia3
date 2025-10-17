@@ -90,4 +90,13 @@ class PostViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    fun toggleLikeById(id: Long) {
+        thread {
+            val updatedPost = repository.toggleLikeById(id, !repository.getAll().find { it.id == id }!!.likedByMe)
+            val currentPosts = _data.value?.posts.orEmpty()
+            val newPosts = currentPosts.map { if (it.id == id) updatedPost else it }
+            _data.postValue(_data.value?.copy(posts = newPosts))
+        }
+    }
 }
