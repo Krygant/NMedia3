@@ -9,3 +9,4 @@ interface PostRepository {
     fun removeById(id: Long)
     fun toggleLikeById(id: Long, addLike: Boolean): Post
 }
+
