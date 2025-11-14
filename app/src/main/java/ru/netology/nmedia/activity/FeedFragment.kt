@@ -9,7 +9,6 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.navigation.fragment.findNavController
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import ru.netology.nmedia.R
 import ru.netology.nmedia.adapter.OnInteractionListener
 import ru.netology.nmedia.adapter.PostsAdapter
@@ -20,8 +19,6 @@ import ru.netology.nmedia.viewmodel.PostViewModel
 class FeedFragment : Fragment() {
 
     private val viewModel: PostViewModel by activityViewModels()
-
-    lateinit var swipeRefreshLayout: SwipeRefreshLayout
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -36,7 +33,7 @@ class FeedFragment : Fragment() {
             }
 
             override fun onLike(post: Post) {
-                viewModel.toggleLikeById(post.id)
+                viewModel.likeById(post.id)
             }
 
             override fun onRemove(post: Post) {
@@ -56,21 +53,13 @@ class FeedFragment : Fragment() {
             }
         })
         binding.list.adapter = adapter
-
-
-        swipeRefreshLayout = binding.root.findViewById(R.id.swipe_refresh_layout)
-
-
-        swipeRefreshLayout.setOnRefreshListener {
-            refreshPosts()
-        }
-
-        viewModel.data.observe(viewLifecycleOwner) { state ->
+        viewModel.data.observe(viewLifecycleOwner, { state ->
             adapter.submitList(state.posts)
             binding.progress.isVisible = state.loading
             binding.errorGroup.isVisible = state.error
             binding.emptyText.isVisible = state.empty
-        }
+            binding.networkErrorGroup.isVisible = state.networkError
+        })
 
         binding.retryButton.setOnClickListener {
             viewModel.loadPosts()
@@ -82,12 +71,5 @@ class FeedFragment : Fragment() {
 
         return binding.root
     }
-    private fun refreshPosts() {
-        viewModel.loadPosts()
-        viewModel.data.observe(viewLifecycleOwner) { state ->
-            if (!state.loading && ::swipeRefreshLayout.isInitialized) {
-                swipeRefreshLayout.isRefreshing = false
-            }
-        }
-    }
 }
+

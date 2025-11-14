@@ -26,7 +26,7 @@ class PostViewModel(application: Application) : AndroidViewModel(application) {
     private val _data = MutableLiveData(FeedModel())
     val data: LiveData<FeedModel>
         get() = _data
-    val edited = MutableLiveData(empty)
+    private val edited = MutableLiveData(empty)
     private val _postCreated = SingleLiveEvent<Unit>()
     val postCreated: LiveData<Unit>
         get() = _postCreated
@@ -37,31 +37,67 @@ class PostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadPosts() {
         _data.value = FeedModel(loading = true)
-        repository.getAllAsync(object : PostRepository.GetAllCallback {
+        repository.getAllAsync(object : PostRepository.Callback<List<Post>> {
             override fun onSuccess(posts: List<Post>) {
-                _data.postValue(FeedModel(posts = posts, empty = posts.isEmpty()))
+                _data.value = FeedModel(posts = posts, empty = posts.isEmpty(), loading = false)
             }
 
-            override fun onError(e: Exception) {
-                _data.postValue(FeedModel(error = true))
+            override fun onError(throwable: Throwable) {
+                if (throwable is RuntimeException && throwable.message.toString().contains("Server returned an error")) {
+                    val serverCode = throwable.message?.substringAfterLast(": ")?.substringBefore("-")
+                        ?.trim()?.toIntOrNull()
+                    if (serverCode in 500..599) {
+                        // Ошибка типа 5xx - внутренняя ошибка сервера
+                        _data.value = FeedModel(networkError = true, loading = false)
+                    } else {
+                        // Другие типы ошибок
+                        _data.value = FeedModel(error = true, loading = false)
+                    }
+                } else {
+                    // Общая ошибка сети или сервиса
+                    _data.value = FeedModel(networkError = true, loading = false)
+                }
             }
         })
     }
 
+    fun getById(id: Long) {
+        repository.getById(id, object : PostRepository.Callback<Post> {
+            override fun onSuccess(post: Post) {
+                // Если запрос успешен, устанавливаем полученный пост в live data
+                _data.value = FeedModel(posts = listOf(post))
+            }
+
+            override fun onError(throwable: Throwable) {
+                // Если произошла ошибка, сообщаем об ошибке
+                _data.value = FeedModel(error = true)
+            }
+        })
+    }
+
+    // сохраняем пост и добавляем его в список
     fun save() {
-        edited.value?.let { post ->
-            repository.save(post, object : PostRepository.SaveCallback {
-                override fun onSuccess(savedPost: Post?) {
-                    if (savedPost != null) {
-                        _postCreated.postValue(Unit)
-                    }
+        edited.value?.let { currentEdited ->
+            repository.save(currentEdited, object : PostRepository.Callback<Post> {
+                override fun onSuccess(savedPost: Post) {
+                    // получаем текущий список постов
+                    val updatedPosts = (_data.value?.posts.orEmpty() + savedPost)
+
+                    // обновляем данные
+                    _data.value = FeedModel(posts = updatedPosts, error = false, loading = false)
+
+                    // очищаем редактируемое поле
+                    edited.value = empty
+
+                    // уведомляем экран о создании поста
+                    _postCreated.value = Unit
                 }
 
-                override fun onError(e: Exception) {
-                    // обработка ошибки
+                override fun onError(throwable: Throwable) {
+                    // обработка ошибок при сохранении поста
+                    _data.value = FeedModel(error = true)
                 }
             })
-            edited.value = empty
         }
     }
 
@@ -77,39 +113,61 @@ class PostViewModel(application: Application) : AndroidViewModel(application) {
         edited.value = edited.value?.copy(content = text)
     }
 
-    fun removeById(id: Long) {
-        repository.removeById(id, object : PostRepository.RemoveCallback {
-            override fun onSuccess() {
-                val currentPosts = _data.value?.posts.orEmpty()
-                val indexOfRemovedPost = currentPosts.indexOfFirst { it.id == id }
+    fun likeById(id: Long) {
+        val currentPost = _data.value?.posts?.find { it.id == id }
+        if (currentPost == null) {
+            return
+        }
 
-                if (indexOfRemovedPost >= 0) {
-                    // Локальное обновление списка после успешного удаления
-                    val updatedPosts = currentPosts.toMutableList().apply { removeAt(indexOfRemovedPost) }
-                    _data.postValue(_data.value?.copy(posts = updatedPosts))
+        if (currentPost.likedByMe) {
+            // Пользователь хочет снять лайк
+            repository.dislikeById(id, object : PostRepository.Callback<Post> {
+                override fun onSuccess(updatedPost: Post) {
+                    updatePostInList(updatedPost)
                 }
-            }
 
-            override fun onError(e: Exception) {
-                // Обработка ошибки удаления
-            }
-        })
+                override fun onError(throwable: Throwable) {
+                    handleError(throwable)
+                }
+            })
+        } else {
+            // Пользователь хочет поставить лайк
+            repository.likeById(id, object : PostRepository.Callback<Post> {
+                override fun onSuccess(updatedPost: Post) {
+                    updatePostInList(updatedPost)
+                }
+
+                override fun onError(throwable: Throwable) {
+                    handleError(throwable)
+                }
+            })
+        }
     }
 
-    fun toggleLikeById(id: Long) {
-        val currentPosts = _data.value?.posts.orEmpty()
-        val postToUpdate = currentPosts.find { it.id == id } ?: return
-        val updatedPost = repository.toggleLikeById(id, !postToUpdate.likedByMe, object :
-            PostRepository.ToggleLikeCallback {
-            override fun onSuccess(updatedPost: Post?) {
-                if (updatedPost != null) {
-                    val newPosts = currentPosts.map { if (it.id == id) updatedPost else it }
-                    _data.postValue(_data.value?.copy(posts = newPosts))
-                }
+    // Обновляет посты в списке ViewModel
+    private fun updatePostInList(updatedPost: Post) {
+        val newPosts = _data.value?.posts.orEmpty().map {
+            if (it.id == updatedPost.id) updatedPost else it
+        }
+        _data.value = FeedModel(posts = newPosts, error = false, loading = false)
+    }
+
+    // Обработка ошибок
+    private fun handleError(throwable: Throwable) {
+        _data.value = FeedModel(error = true)
+    }
+
+    // удаляем пост
+    fun removeById(id: Long) {
+        repository.removeById(id, object : PostRepository.Callback<Unit> {
+            override fun onSuccess(result: Unit) {
+                // удаляем пост из списка
+                val updatedPosts = _data.value?.posts.orEmpty().filter { it.id != id }
+                _data.value = FeedModel(posts = updatedPosts, error = false, loading = false)
             }
 
-            override fun onError(exception: Exception) {
-                // обработка ошибок
+            override fun onError(throwable: Throwable) {
+                _data.value = FeedModel(error = true)
             }
         })
     }
